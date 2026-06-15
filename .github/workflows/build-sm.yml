@@ -55,4 +55,4 @@ jobs:
           
           # Create new release
           echo "Creating release $TAG..."
-          gh release create "$TAG" shell/sm.sh --title "Release $TAG" --generate-notes $PRERELEASE
+          gh release create "$TAG" shell/sm.sh --title "Sing-Man $TAG" --generate-notes $PRERELEASE

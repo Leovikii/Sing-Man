@@ -137,15 +137,6 @@ self::uninstall() {
         echo
     fi
 
-    if nftbl::is_installed; then
-        if ui::confirm "检测到 ${BLUE}nftables 黑名单${PLAIN}，是否卸载?"; then
-            nftbl::uninstall
-        else
-            log::info "已保留 nftables 黑名单"
-        fi
-        echo
-    fi
-
     echo -e "是否删除 ${BLUE}本管理脚本 ($SCRIPT_NAME)${PLAIN} 及缓存文件？"
     if ui::confirm "请输入"; then
         [[ -f "$INSTALL_PATH" ]] && rm -f "$INSTALL_PATH" && log::info "脚本文件已删除: $INSTALL_PATH"

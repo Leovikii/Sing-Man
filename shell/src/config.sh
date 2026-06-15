@@ -3,7 +3,7 @@
 # ==============================================================================
 
 SCRIPT_NAME="sm.sh"
-SCRIPT_VERSION="3.2.5"
+SCRIPT_VERSION="3.2.6"
 INSTALL_PATH="/usr/local/bin/$SCRIPT_NAME"
 SCRIPT_UPDATE_URL="https://api.github.com/repos/Leovikii/sm/releases"
 
