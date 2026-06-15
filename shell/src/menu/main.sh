@@ -27,10 +27,9 @@ menu::main() {
         echo -e "  ${GREEN}4.${PLAIN} 系统更新 (full-upgrade 修复内核漏洞)"
         echo -e "  ${GREEN}5.${PLAIN} UFW 防火墙管理"
         echo -e "  ${GREEN}6.${PLAIN} 系统 TCP 网络优化"
-        echo -e "  ${GREEN}7.${PLAIN} nftables 黑名单 (trick77/nftables-blacklist)"
         ui::divider
-        echo -e "  ${GREEN}8.${PLAIN} 检查并更新管理脚本"
-        echo -e "  ${GREEN}9.${PLAIN} 卸载脚本 (可选卸载所有组件)"
+        echo -e "  ${GREEN}7.${PLAIN} 检查并更新管理脚本"
+        echo -e "  ${GREEN}8.${PLAIN} 卸载脚本 (可选卸载所有组件)"
         echo -e "  ${GREEN}0.${PLAIN}  退出"
         ui::divider
         echo -e "  ${BLUE}快捷指令${PLAIN}: 输入 ${GREEN}${SCRIPT_NAME}${PLAIN} 即可再次调出此菜单"
@@ -44,9 +43,8 @@ menu::main() {
             4)  system::full_upgrade; ui::pause ;;
             5)  menu::ufw ;;
             6)  tcp::run; ui::pause ;;
-            7)  menu::nftbl ;;
-            8)  self::check_update "$@" ;;
-            9)  self::uninstall; ui::pause ;;
+            7)  self::check_update "$@" ;;
+            8)  self::uninstall; ui::pause ;;
             0)  exit 0 ;;
             *)  log::err "无效选项，请重新输入"; ui::pause ;;
         esac
