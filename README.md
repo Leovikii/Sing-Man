@@ -1,4 +1,4 @@
-# SM
+# Sing-Man
 
 A single-file, modular toolkit for Debian/Ubuntu servers — install Sing-box, harden the firewall, deploy common stacks, and patch the kernel from one interactive menu.
 
