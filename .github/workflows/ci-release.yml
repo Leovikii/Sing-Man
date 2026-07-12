@@ -1,0 +1,133 @@
+name: CI and Release
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'shell/**'
+  push:
+    branches: [main]
+    paths:
+      - 'shell/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate shell sources
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+
+      - name: Build and syntax check
+        run: bash shell/build.sh --check
+
+      - name: ShellCheck
+        run: |
+          bash shell/build.sh
+          shellcheck -S error shell/sm.sh shell/build.sh
+
+      - name: Read and validate version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"$/\1/p' shell/src/config.sh)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || {
+            echo "Invalid SCRIPT_VERSION: $version" >&2
+            exit 1
+          }
+          if ! git diff --quiet "origin/$GITHUB_BASE_REF...HEAD" -- shell; then
+            base_version=$(git show "origin/$GITHUB_BASE_REF:shell/src/config.sh" |
+              sed -n 's/^SCRIPT_VERSION="\([^"]*\)"$/\1/p')
+            dpkg --compare-versions "$version" gt "$base_version" || {
+              echo "SCRIPT_VERSION must increase from $base_version (current: $version)." >&2
+              exit 1
+            }
+          fi
+
+  release:
+    name: Publish release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout merged history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes shellcheck
+
+      - name: Build and verify release
+        run: |
+          bash shell/build.sh --check
+          bash shell/build.sh
+          shellcheck -S error shell/sm.sh shell/build.sh
+
+      - name: Prepare checksum and minimal notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"$/\1/p' shell/src/config.sh)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || {
+            echo "Invalid SCRIPT_VERSION: $version" >&2
+            exit 1
+          }
+          tag="v$version"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; bump SCRIPT_VERSION before merging." >&2
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp shell/sm.sh dist/sm.sh
+          chmod 0755 dist/sm.sh
+          (cd dist && sha256sum sm.sh > sm.sh.sha256)
+
+          previous_tag=$(git tag --sort=-version:refname | sed -n '1p' || true)
+          if [[ -n "$previous_tag" ]]; then
+            changes=$(git log "$previous_tag..HEAD" --no-merges --pretty=format:'- %s' | sed -n '1,8p')
+          else
+            changes=$(git log HEAD --no-merges --pretty=format:'- %s' | sed -n '1,8p')
+          fi
+          {
+            echo "## $tag"
+            echo
+            if [[ -n "$changes" ]]; then
+              printf '%s\n' "$changes"
+            else
+              echo '- Maintenance update.'
+            fi
+          } > release-notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"$/\1/p' shell/src/config.sh)
+          args=("v$version" dist/sm.sh dist/sm.sh.sha256
+            --title "v$version"
+            --notes-file release-notes.md)
+          if [[ "$version" =~ (alpha|beta|rc|test) ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${args[@]}"

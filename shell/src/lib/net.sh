@@ -5,17 +5,19 @@
 net::fetch() {
     local url="$1"
     if sys::has_cmd curl; then
-        curl -k -f -L --retry 2 --connect-timeout 5 -s -A "sing-box/1.0" "$url"
+        curl --fail --location --retry 2 --connect-timeout 5 --max-time 60 \
+            --silent --show-error -A "sing-box/1.0" "$url"
     else
-        wget --no-check-certificate -q -O- -T 5 -t 2 --user-agent="sing-box/1.0" "$url"
+        wget -q -O- -T 60 -t 2 --user-agent="sing-box/1.0" "$url"
     fi
 }
 
 net::download() {
     local url="$1" dest="$2"
     if sys::has_cmd curl; then
-        curl -k -f -L --retry 3 --connect-timeout 10 -s -A "sing-box/1.0" -o "$dest" "$url"
+        curl --fail --location --retry 3 --connect-timeout 10 --max-time 180 \
+            --silent --show-error -A "sing-box/1.0" -o "$dest" "$url"
     else
-        wget --no-check-certificate -q -T 15 -t 3 --user-agent="sing-box/1.0" -O "$dest" "$url"
+        wget -q -T 180 -t 3 --user-agent="sing-box/1.0" -O "$dest" "$url"
     fi
 }

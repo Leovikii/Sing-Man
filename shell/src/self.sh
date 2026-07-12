@@ -5,11 +5,14 @@
 self::install_shortcut() {
     [[ "$(realpath "$0")" == "$(realpath "$INSTALL_PATH" 2>/dev/null)" ]] && return 0
     log::info "首次运行，正在执行自安装..."
-    cp -f "$0" "$INSTALL_PATH"
-    chmod +x "$INSTALL_PATH"
+    if ! install -m 0755 "$0" "$INSTALL_PATH"; then
+        log::err "安装管理脚本失败: $INSTALL_PATH"
+        return 1
+    fi
     log::info "快捷方式已安装: 输入 ${GREEN}${SCRIPT_NAME}${PLAIN} 即可随时启动"
-    rm -f "$0"
     exec "$INSTALL_PATH" "$@"
+    log::err "重新启动管理脚本失败: $INSTALL_PATH"
+    return 1
 }
 
 self::check_update() {
@@ -96,7 +99,7 @@ self::check_update() {
         return 0
     fi
 
-    local download_url="https://github.com/Leovikii/sm/releases/download/v${target_version}/sm.sh"
+    local download_url="https://github.com/Leovikii/Sing-Man/releases/download/v${target_version}/sm.sh"
 
     mkdir -p "$TMP_DIR"
     log::info "正在下载新版脚本 v${target_version}..."
@@ -106,9 +109,29 @@ self::check_update() {
         return 1
     fi
 
+    if [[ ! -s "$temp_script" ]]; then
+        log::err "下载的新版本文件为空，已取消更新。"
+        return 1
+    fi
+    if ! bash -n "$temp_script"; then
+        log::err "下载的新版本未通过 Bash 语法检查，已取消更新。"
+        return 1
+    fi
+    if ! grep -Fq "SCRIPT_VERSION=\"${target_version}\"" "$temp_script"; then
+        log::err "下载文件中的版本号与目标版本不一致，已取消更新。"
+        return 1
+    fi
 
-    chmod +x "$temp_script"
-    mv -f "$temp_script" "$INSTALL_PATH"
+    local staged_script="${INSTALL_PATH}.new.$$"
+    if ! install -m 0755 "$temp_script" "$staged_script"; then
+        log::err "暂存新版本失败，当前版本未被修改。"
+        return 1
+    fi
+    if ! mv -f "$staged_script" "$INSTALL_PATH"; then
+        rm -f "$staged_script"
+        log::err "替换管理脚本失败，当前版本未被修改。"
+        return 1
+    fi
     log::info "脚本更新成功！正在重新加载..."
     sleep 1
     exec "$INSTALL_PATH" "$@"
