@@ -11,8 +11,6 @@ self::install_shortcut() {
     fi
     log::info "快捷方式已安装: 输入 ${GREEN}${SCRIPT_NAME}${PLAIN} 即可随时启动"
     exec "$INSTALL_PATH" "$@"
-    log::err "重新启动管理脚本失败: $INSTALL_PATH"
-    return 1
 }
 
 self::get_update_channel() {
