@@ -4,6 +4,11 @@
 
 sys::has_cmd() { command -v "$1" &>/dev/null; }
 
+sys::has_systemd() {
+    sys::has_cmd systemctl && [[ -d /run/systemd/system ]] &&
+        [[ "$(cat /proc/1/comm 2>/dev/null)" == "systemd" ]]
+}
+
 sys::require_root() {
     [[ $EUID -ne 0 ]] && { log::err "请使用 root 用户运行此脚本 (sudo -i)"; exit 1; }
 }

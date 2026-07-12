@@ -21,9 +21,9 @@ CHECK_ONLY=0
 
 # 颜色
 G='\033[32m'; Y='\033[33m'; R='\033[31m'; N='\033[0m'
-info() { echo -e "${G}[build]${N} $1"; }
-warn() { echo -e "${Y}[build]${N} $1"; }
-die()  { echo -e "${R}[build]${N} $1" >&2; exit 1; }
+info() { printf '%b[build]%b %s\n' "$G" "$N" "$1"; }
+warn() { printf '%b[build]%b %s\n' "$Y" "$N" "$1"; }
+die()  { printf '%b[build]%b %s\n' "$R" "$N" "$1" >&2; exit 1; }
 
 [[ -d "$SRC_DIR" ]] || die "源码目录不存在: $SRC_DIR"
 
@@ -35,6 +35,7 @@ SOURCES=(
     "lib/log.sh"
     "lib/ui.sh"
     "lib/sys.sh"
+    "lib/version.sh"
     "lib/net.sh"
     "lib/pkg.sh"
     "lib/svc.sh"

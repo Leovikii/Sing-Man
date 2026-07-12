@@ -6,10 +6,12 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'shell/**'
+      - '.github/workflows/ci-release.yml'
   push:
     branches: [main]
     paths:
       - 'shell/**'
+      - '.github/workflows/ci-release.yml'
 
 permissions:
   contents: read
@@ -21,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
@@ -36,25 +38,54 @@ jobs:
       - name: ShellCheck
         run: |
           bash shell/build.sh
-          shellcheck -S error shell/sm.sh shell/build.sh
+          shellcheck -S warning shell/sm.sh shell/build.sh shell/tests/regression.sh
+
+      - name: Regression tests
+        run: bash shell/tests/regression.sh
 
       - name: Read and validate version
         shell: bash
         run: |
           set -euo pipefail
+          source shell/src/lib/version.sh
           version=$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"$/\1/p' shell/src/config.sh)
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || {
+          version::is_valid "$version" || {
             echo "Invalid SCRIPT_VERSION: $version" >&2
             exit 1
           }
           if ! git diff --quiet "origin/$GITHUB_BASE_REF...HEAD" -- shell; then
             base_version=$(git show "origin/$GITHUB_BASE_REF:shell/src/config.sh" |
               sed -n 's/^SCRIPT_VERSION="\([^"]*\)"$/\1/p')
-            dpkg --compare-versions "$version" gt "$base_version" || {
-              echo "SCRIPT_VERSION must increase from $base_version (current: $version)." >&2
+            version::ge "$version" "$base_version" || {
+              echo "SCRIPT_VERSION must not decrease from $base_version (current: $version)." >&2
               exit 1
             }
           fi
+
+  compatibility:
+    name: Compatibility (${{ matrix.image }})
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:12-slim
+          - ubuntu:24.04
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install test runtime
+        run: |
+          apt-get update
+          apt-get install --yes bash ca-certificates coreutils gawk git grep sed util-linux
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Build and run regression tests
+        run: |
+          bash shell/build.sh --check
+          bash shell/tests/regression.sh
 
   release:
     name: Publish release
@@ -64,7 +95,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout merged history
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
@@ -77,24 +108,37 @@ jobs:
         run: |
           bash shell/build.sh --check
           bash shell/build.sh
-          shellcheck -S error shell/sm.sh shell/build.sh
+          shellcheck -S warning shell/sm.sh shell/build.sh shell/tests/regression.sh
+          bash shell/tests/regression.sh
 
-      - name: Prepare checksum and minimal notes
+      - name: Decide whether to publish
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
+          source shell/src/lib/version.sh
           version=$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"$/\1/p' shell/src/config.sh)
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || {
+          version::is_valid "$version" || {
             echo "Invalid SCRIPT_VERSION: $version" >&2
             exit 1
           }
           tag="v$version"
           if gh release view "$tag" >/dev/null 2>&1; then
-            echo "Release $tag already exists; bump SCRIPT_VERSION before merging." >&2
-            exit 1
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Release $tag already exists; validation completed without republishing."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Prepare checksum and minimal notes
+        if: steps.release.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"$/\1/p' shell/src/config.sh)
+          tag="v$version"
 
           mkdir -p dist
           cp shell/sm.sh dist/sm.sh
@@ -118,16 +162,18 @@ jobs:
           } > release-notes.md
 
       - name: Create GitHub release
+        if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
+          source shell/src/lib/version.sh
           version=$(sed -n 's/^SCRIPT_VERSION="\([^"]*\)"$/\1/p' shell/src/config.sh)
           args=("v$version" dist/sm.sh dist/sm.sh.sha256
             --title "v$version"
             --notes-file release-notes.md)
-          if [[ "$version" =~ (alpha|beta|rc|test) ]]; then
+          if version::is_prerelease "$version"; then
             args+=(--prerelease)
           fi
           gh release create "${args[@]}"

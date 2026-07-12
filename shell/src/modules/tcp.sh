@@ -12,5 +12,6 @@ tcp::run() {
         bash "$tcp_local"
     else
         log::err "TCP 脚本下载失败。"
+        return 1
     fi
 }

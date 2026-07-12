@@ -26,6 +26,8 @@ sm.sh
 - **UFW firewall** — install with sane defaults (22/80/443), add or delete rules with automatic IPv4/IPv6 dual-stack handling
 - **TCP tuning** — one-tap BBR / network optimization
 - **Self-update** — menu option 7 fetches the latest release and reloads in place
+- **Update channels** — persistently choose stable-only or preview (beta/rc) updates
+- **Safer operations** — single-instance locking, HTTPS-only downloads, pinned repository key fingerprint, configuration rollback
 - **Safe uninstall** — asks before removing Sing-box, UFW, the management script, and cached state
 
 ## Architecture
