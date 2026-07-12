@@ -99,7 +99,7 @@ jobs:
           mkdir -p dist
           cp shell/sm.sh dist/sm.sh
           chmod 0755 dist/sm.sh
-          sha256sum dist/sm.sh > dist/sm.sh.sha256
+          (cd dist && sha256sum sm.sh > sm.sh.sha256)
 
           previous_tag=$(git tag --sort=-version:refname | sed -n '1p' || true)
           if [[ -n "$previous_tag" ]]; then
