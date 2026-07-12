@@ -2,22 +2,35 @@
 # pkg:: APT 软件包管理封装
 # ==============================================================================
 
+pkg::_apt() {
+    apt-get \
+        -o "DPkg::Lock::Timeout=${APT_LOCK_TIMEOUT}" \
+        -o "Acquire::http::Timeout=${APT_NETWORK_TIMEOUT}" \
+        -o "Acquire::https::Timeout=${APT_NETWORK_TIMEOUT}" \
+        -o "Acquire::Retries=2" \
+        "$@"
+}
+
+pkg::_apt_noninteractive() {
+    DEBIAN_FRONTEND=noninteractive pkg::_apt "$@"
+}
+
 pkg::update() {
     if [[ "${1:-}" == "quiet" ]]; then
-        apt-get update -y >/dev/null 2>&1
+        pkg::_apt update >/dev/null 2>&1
     else
-        apt-get update -y
+        pkg::_apt update
     fi
 }
 
-pkg::install()       { DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"; }
-pkg::install_quiet() { DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" >/dev/null 2>&1; }
-pkg::purge()         { DEBIAN_FRONTEND=noninteractive apt-get purge -y "$@"; }
-pkg::autoremove()    { DEBIAN_FRONTEND=noninteractive apt-get autoremove -y --purge "$@"; }
-pkg::clean()         { apt-get clean; }
+pkg::install()       { pkg::_apt_noninteractive install -y "$@"; }
+pkg::install_quiet() { pkg::_apt_noninteractive install -y "$@" >/dev/null 2>&1; }
+pkg::purge()         { pkg::_apt_noninteractive purge -y "$@"; }
+pkg::autoremove()    { pkg::_apt_noninteractive autoremove -y --purge "$@"; }
+pkg::clean()         { pkg::_apt clean; }
 
 pkg::full_upgrade() {
-    DEBIAN_FRONTEND=noninteractive apt-get "$@" -y full-upgrade
+    pkg::_apt_noninteractive "$@" -y full-upgrade
 }
 
 # 静默模式失败时回退到 verbose 模式重跑，让用户看到真实 apt 错误
@@ -67,7 +80,7 @@ pkg::ensure_deps() {
 }
 
 pkg::add_gpg_key() {
-    local url="$1" dest="$2" mode="${3:-}"
+    local url="$1" dest="$2" expected_fingerprint="${3:-}" mode="${4:-}"
     local staged
     staged=$(mktemp "${dest}.new.XXXXXXXX") || return 1
     if [[ "$mode" == "--dearmor" ]]; then
@@ -78,6 +91,16 @@ pkg::add_gpg_key() {
     else
         if ! net::fetch "$url" > "$staged" || [[ ! -s "$staged" ]]; then
             rm -f -- "$staged"
+            return 1
+        fi
+    fi
+    if [[ -n "$expected_fingerprint" ]]; then
+        local actual_fingerprint
+        actual_fingerprint=$(gpg --batch --show-keys --with-colons "$staged" 2>/dev/null |
+            awk -F: '$1 == "fpr" {print toupper($10); exit}')
+        if [[ "$actual_fingerprint" != "${expected_fingerprint^^}" ]]; then
+            rm -f -- "$staged"
+            log::err "GPG 密钥指纹校验失败。"
             return 1
         fi
     fi

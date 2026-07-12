@@ -30,6 +30,7 @@ menu::main() {
         ui::divider
         echo -e "  ${GREEN}7.${PLAIN} 检查并更新管理脚本"
         echo -e "  ${GREEN}8.${PLAIN} 卸载脚本 (可选卸载所有组件)"
+        echo -e "  ${GREEN}9.${PLAIN} 设置脚本更新频道 (stable/preview)"
         echo -e "  ${GREEN}0.${PLAIN}  退出"
         ui::divider
         echo -e "  ${BLUE}快捷指令${PLAIN}: 输入 ${GREEN}${SCRIPT_NAME}${PLAIN} 即可再次调出此菜单"
@@ -45,6 +46,7 @@ menu::main() {
             6)  tcp::run; ui::pause ;;
             7)  self::check_update "$@" ;;
             8)  self::uninstall; ui::pause ;;
+            9)  self::configure_update_channel; ui::pause ;;
             0)  exit 0 ;;
             *)  log::err "无效选项，请重新输入"; ui::pause ;;
         esac

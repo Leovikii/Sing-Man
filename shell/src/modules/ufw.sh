@@ -70,6 +70,62 @@ ufw::_get_ssh_ports() {
     done | sort -nu
 }
 
+ufw::_rule_exists() {
+    local spec="$1"
+    LC_ALL=C timeout 5 ufw status 2>/dev/null |
+        awk -v spec="$spec" '$1 == spec && $2 == "ALLOW" {found=1} END {exit !found}'
+}
+
+ufw::_rollback_added_rules() {
+    local rules_name="$1" index
+    local -n rules_ref="$rules_name"
+    for (( index=${#rules_ref[@]}-1; index>=0; index-- )); do
+        ufw --force delete allow "${rules_ref[$index]}" >/dev/null 2>&1 ||
+            log::warn "自动回滚规则 ${rules_ref[$index]} 失败，请手动检查 UFW。"
+    done
+}
+
+ufw::_ensure_allow() {
+    local port="$1" proto="$2" comment="$3" added_name="$4"
+    local spec="${port}/${proto}"
+    local -n added_ref="$added_name"
+    ufw::_rule_exists "$spec" && return 0
+    if ufw::allow "$port" "$proto" "$comment"; then
+        added_ref+=("$spec")
+        return 0
+    fi
+    return 1
+}
+
+ufw::ensure_baseline_rules() {
+    local ssh_ports port
+    # 通过 nameref 传给 _ensure_allow / _rollback_added_rules。
+    # shellcheck disable=SC2034
+    local added_rules=()
+    if ! ssh_ports=$(ufw::_get_ssh_ports) || [[ -z "$ssh_ports" ]]; then
+        log::err "未取得有效 SSH 端口；为避免失联，不会启用 UFW。"
+        return 1
+    fi
+
+    log::warn "确保放行检测到的 SSH 端口及 80/443 端口 (TCP/UDP、IPv4/IPv6 双栈)"
+    log::info "检测到 SSH 端口: $(tr '\n' ' ' <<< "$ssh_ports" | sed 's/[[:space:]]*$//')"
+    while IFS= read -r port; do
+        if ! ufw::_ensure_allow "$port" tcp "SSH TCP" added_rules ||
+           ! ufw::_ensure_allow "$port" udp "SSH UDP" added_rules; then
+            ufw::_rollback_added_rules added_rules
+            return 1
+        fi
+    done <<< "$ssh_ports"
+
+    if ! ufw::_ensure_allow 80 tcp "HTTP TCP" added_rules ||
+       ! ufw::_ensure_allow 80 udp "HTTP UDP" added_rules ||
+       ! ufw::_ensure_allow 443 tcp "HTTPS TCP" added_rules ||
+       ! ufw::_ensure_allow 443 udp "HTTPS UDP" added_rules; then
+        ufw::_rollback_added_rules added_rules
+        return 1
+    fi
+}
+
 ufw::install() {
     if ufw::is_installed; then
         log::warn "UFW 已经安装，正在检查更新..."
@@ -92,7 +148,7 @@ ufw::install() {
         else
             log::info "UFW 已是最新版本"
         fi
-        return 0
+        ufw::ensure_baseline_rules
     fi
 
     log::info "正在安装 UFW..."
@@ -106,22 +162,7 @@ ufw::install() {
     fi
 
     log::info "UFW 安装成功"
-    local ssh_ports port
-    if ! ssh_ports=$(ufw::_get_ssh_ports) || [[ -z "$ssh_ports" ]]; then
-        log::err "未取得有效 SSH 端口，UFW 不会启用。"
-        return 1
-    fi
-
-    log::warn "自动放行检测到的 SSH 端口及 80/443 端口 (TCP/UDP、IPv4/IPv6 双栈)"
-    log::info "检测到 SSH 端口: $(tr '\n' ' ' <<< "$ssh_ports" | sed 's/[[:space:]]*$//')"
-    while IFS= read -r port; do
-        ufw::allow "$port" tcp "SSH TCP" || return 1
-        ufw::allow "$port" udp "SSH UDP" || return 1
-    done <<< "$ssh_ports"
-    ufw::allow 80 tcp "HTTP TCP" || return 1
-    ufw::allow 80 udp "HTTP UDP" || return 1
-    ufw::allow 443 tcp "HTTPS TCP" || return 1
-    ufw::allow 443 udp "HTTPS UDP" || return 1
+    ufw::ensure_baseline_rules || return 1
 
     log::step "正在启用 UFW..."
     if echo "y" | ufw enable >/dev/null 2>&1; then
@@ -135,6 +176,7 @@ ufw::install() {
 
 ufw::enable() {
     ufw::_require || return
+    ufw::ensure_baseline_rules || return 1
     if echo "y" | ufw enable >/dev/null 2>&1; then
         log::info "UFW 已启用"
         return 0
@@ -234,8 +276,7 @@ ufw::delete_rule_interactive() {
         return
     fi
 
-    log::warn "为避免误删来源限制、deny/reject 或接口规则，脚本只删除明确选择的编号。"
-    log::warn "IPv4 与 IPv6 规则如需同时删除，请分别选择。"
+    log::warn "仅在 IPv4/IPv6 规则内容严格一致且配对唯一时提供成对删除。"
     local rule_num
     ui::prompt "请输入要删除的规则编号 (0 取消): " rule_num
     if [[ ! "$rule_num" =~ ^[0-9]+$ ]] || [[ "$rule_num" == "0" ]]; then
@@ -252,15 +293,45 @@ ufw::delete_rule_interactive() {
     fi
     log::info "已选择规则: $rule_info"
 
-    log::warn "将删除规则编号 $rule_num: $rule_info"
+    local selected_normalized selected_is_v6=0 line candidate_normalized candidate_is_v6 num
+    local pair_candidates=() rules_to_delete=("$rule_num")
+    [[ "$rule_info" == *"(v6)"* ]] && selected_is_v6=1
+    selected_normalized=$(printf '%s\n' "$rule_info" |
+        sed -E 's/^\[[[:space:]]*[0-9]+\][[:space:]]+//; s/[[:space:]]+\(v6\)//g; s/[[:space:]]+/ /g')
+    while IFS= read -r line; do
+        num=$(printf '%s\n' "$line" | sed -n 's/^\[ *\([0-9]\+\)\].*/\1/p')
+        [[ -z "$num" || "$num" == "$rule_num" ]] && continue
+        candidate_is_v6=0
+        [[ "$line" == *"(v6)"* ]] && candidate_is_v6=1
+        [[ "$candidate_is_v6" -eq "$selected_is_v6" ]] && continue
+        candidate_normalized=$(printf '%s\n' "$line" |
+            sed -E 's/^\[[[:space:]]*[0-9]+\][[:space:]]+//; s/[[:space:]]+\(v6\)//g; s/[[:space:]]+/ /g')
+        [[ "$candidate_normalized" == "$selected_normalized" ]] && pair_candidates+=("$num")
+    done < <(printf '%s\n' "$rules_raw" | sed 's/\x1b\[[0-9;]*m//g' | grep '^\[')
+
+    if [[ ${#pair_candidates[@]} -eq 1 ]]; then
+        if ui::confirm "检测到严格匹配的 IPv4/IPv6 对应规则 ${pair_candidates[0]}，是否一并删除?"; then
+            rules_to_delete+=("${pair_candidates[0]}")
+        fi
+    elif [[ ${#pair_candidates[@]} -gt 1 ]]; then
+        log::warn "检测到多个相似规则，无法安全判断配对，将只删除选中规则。"
+    fi
+
+    IFS=$'\n' read -r -d '' -a rules_to_delete < <(
+        printf '%s\n' "${rules_to_delete[@]}" | sort -rn -u
+        printf '\0'
+    )
+    log::warn "将删除规则编号: ${rules_to_delete[*]}"
     ui::confirm "确认删除?" || { log::warn "取消删除"; return; }
 
-    if echo "y" | ufw delete "$rule_num" >/dev/null 2>&1; then
-        log::info "已删除规则 $rule_num"
-    else
-        log::err "删除规则 $rule_num 失败"
-        return 1
-    fi
+    for num in "${rules_to_delete[@]}"; do
+        if echo "y" | ufw delete "$num" >/dev/null 2>&1; then
+            log::info "已删除规则 $num"
+        else
+            log::err "删除规则 $num 失败"
+            return 1
+        fi
+    done
     log::info "更新后的规则列表："
     ufw::_status_numbered
 }

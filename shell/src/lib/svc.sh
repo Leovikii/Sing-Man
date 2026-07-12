@@ -2,13 +2,21 @@
 # svc:: systemd 服务封装
 # ==============================================================================
 
-svc::is_active() { systemctl is-active --quiet "$1"; }
-svc::start()     { systemctl start "$1"; }
-svc::stop()      { systemctl stop "$1" 2>/dev/null; }
-svc::restart()   { systemctl restart "$1"; }
-svc::enable()    { systemctl enable "$1" >/dev/null 2>&1; }
-svc::disable()   { systemctl disable "$1" 2>/dev/null; }
+svc::_require_systemd() {
+    if ! sys::has_systemd; then
+        log::err "当前环境未运行 systemd，无法管理系统服务。"
+        return 1
+    fi
+}
+
+svc::is_active() { sys::has_systemd && timeout "$SYSTEMCTL_TIMEOUT" systemctl is-active --quiet "$1"; }
+svc::start()     { svc::_require_systemd && timeout "$SYSTEMCTL_TIMEOUT" systemctl start "$1"; }
+svc::stop()      { svc::_require_systemd && timeout "$SYSTEMCTL_TIMEOUT" systemctl stop "$1" 2>/dev/null; }
+svc::restart()   { svc::_require_systemd && timeout "$SYSTEMCTL_TIMEOUT" systemctl restart "$1"; }
+svc::enable()    { svc::_require_systemd && timeout "$SYSTEMCTL_TIMEOUT" systemctl enable "$1" >/dev/null 2>&1; }
+svc::disable()   { svc::_require_systemd && timeout "$SYSTEMCTL_TIMEOUT" systemctl disable "$1" 2>/dev/null; }
 svc::logs()      {
+    svc::_require_systemd || return 1
     trap - INT
     journalctl -u "$1" -f -o cat
     trap 'echo -e "\n${YELLOW}[WARN]${PLAIN} 接收到退出指令，脚本终止。"; exit 130' INT TERM HUP

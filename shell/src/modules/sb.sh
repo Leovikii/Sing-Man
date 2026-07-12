@@ -24,7 +24,8 @@ sb::install() {
     log::info "准备安装/更新 Sing-box..."
 
     mkdir -p /etc/apt/keyrings
-    pkg::add_gpg_key "https://sing-box.app/gpg.key" "/etc/apt/keyrings/sagernet.asc" || {
+    pkg::add_gpg_key "https://sing-box.app/gpg.key" "/etc/apt/keyrings/sagernet.asc" \
+        "$SAGERNET_GPG_FINGERPRINT" || {
         log::err "Sing-box GPG 密钥下载失败。"; return 1; }
 
     pkg::write_repo \
@@ -60,11 +61,11 @@ sb::uninstall() {
     rm -f /etc/apt/sources.list.d/sagernet.list
     rm -f /etc/apt/keyrings/sagernet.asc
 
-    # /etc/sing-box 内有用户拉下来或手写的 config.json 以及历史证书目录，
+    # 配置目录内有用户拉下来或手写的 config.json 以及历史证书目录，
     # 默认保留并询问是否清理
-    if [[ -d /etc/sing-box ]] && ui::confirm "是否同时删除配置目录 /etc/sing-box?"; then
-        rm -rf /etc/sing-box
-        log::info "/etc/sing-box 已删除"
+    if [[ -d "$SB_CONFIG_DIR" ]] && ui::confirm "是否同时删除配置目录 $SB_CONFIG_DIR?"; then
+        rm -rf -- "$SB_CONFIG_DIR"
+        log::info "$SB_CONFIG_DIR 已删除"
     fi
 
     log::info "Sing-box 已卸载"
@@ -93,7 +94,8 @@ sb::get_default_url() {
 sb::set_default_url() {
     local state_dir
     state_dir=$(dirname "$CONFIG_URL_FILE")
-    install -d -m 0700 "$state_dir" || return 1
+    mkdir -p "$state_dir" || return 1
+    chmod 0700 "$state_dir" || return 1
     printf '%s\n' "$1" > "$CONFIG_URL_FILE" || return 1
     chmod 0600 "$CONFIG_URL_FILE"
 }
@@ -109,7 +111,8 @@ sb::get_last_update_date() {
 sb::set_last_update_date() {
     local state_dir
     state_dir=$(dirname "$CONFIG_DATE_FILE")
-    install -d -m 0700 "$state_dir" || return 1
+    mkdir -p "$state_dir" || return 1
+    chmod 0700 "$state_dir" || return 1
     date "+%Y-%m-%d %H:%M:%S" > "$CONFIG_DATE_FILE" || return 1
     chmod 0600 "$CONFIG_DATE_FILE"
 }
@@ -167,11 +170,11 @@ sb::update_config_interactive() {
         return 1
     fi
     
-    mkdir -p /etc/sing-box || {
-        log::err "无法创建配置目录 /etc/sing-box。"
+    mkdir -p "$SB_CONFIG_DIR" || {
+        log::err "无法创建配置目录 $SB_CONFIG_DIR。"
         return 1
     }
-    local target_conf="/etc/sing-box/config.json"
+    local target_conf="$SB_CONFIG_FILE"
     
     if [[ -f "$target_conf" ]]; then
         if cmp -s -- "$target_conf" "$tmp_conf"; then
@@ -188,11 +191,11 @@ sb::update_config_interactive() {
 
     # 在目标目录内暂存，保证替换动作在同一文件系统内完成。
     local staged_conf backup_conf had_old=0
-    staged_conf=$(mktemp /etc/sing-box/.config.json.new.XXXXXXXX) || {
+    staged_conf=$(mktemp "$SB_CONFIG_DIR/.config.json.new.XXXXXXXX") || {
         log::err "无法创建配置暂存文件。"
         return 1
     }
-    backup_conf="/etc/sing-box/.config.json.backup.$$"
+    backup_conf="$SB_CONFIG_DIR/.config.json.backup.$$"
     if ! install -m 0600 "$tmp_conf" "$staged_conf"; then
         rm -f -- "$staged_conf"
         log::err "无法写入配置暂存文件。"

@@ -37,8 +37,8 @@ system::full_upgrade() {
     fi
 
     log::step "[4/4] 清理无用依赖..."
-    pkg::autoremove "${apt_opts[@]}"
-    pkg::clean
+    pkg::autoremove "${apt_opts[@]}" || log::warn "无用依赖清理失败，可稍后手动执行 apt-get autoremove。"
+    pkg::clean || log::warn "APT 缓存清理失败，可稍后手动执行 apt-get clean。"
 
     sys::reboot_if_needed
 }
