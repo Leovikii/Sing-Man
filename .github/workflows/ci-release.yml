@@ -4,9 +4,6 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
-    paths:
-      - 'shell/**'
-      - '.github/workflows/ci-release.yml'
   push:
     branches: [main]
     paths:
@@ -18,8 +15,7 @@ permissions:
 
 jobs:
   validate:
-    name: Validate shell sources
-    if: github.event_name == 'pull_request'
+    name: Core validation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,18 +28,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes shellcheck
 
-      - name: Build and syntax check
-        run: bash shell/build.sh --check
-
-      - name: ShellCheck
+      - name: Build and test
         run: |
           bash shell/build.sh
           shellcheck -S warning shell/sm.sh shell/build.sh shell/tests/regression.sh
+          bash shell/tests/regression.sh
 
-      - name: Regression tests
-        run: bash shell/tests/regression.sh
-
-      - name: Read and validate version
+      - name: Validate version
         shell: bash
         run: |
           set -euo pipefail
@@ -53,7 +44,9 @@ jobs:
             echo "Invalid SCRIPT_VERSION: $version" >&2
             exit 1
           }
-          if ! git diff --quiet "origin/$GITHUB_BASE_REF...HEAD" -- shell; then
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]] &&
+             ! git diff --quiet "origin/$GITHUB_BASE_REF...HEAD" -- shell; then
             base_version=$(git show "origin/$GITHUB_BASE_REF:shell/src/config.sh" |
               sed -n 's/^SCRIPT_VERSION="\([^"]*\)"$/\1/p')
             version::ge "$version" "$base_version" || {
@@ -82,14 +75,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Build and run regression tests
+      - name: Build and test
         run: |
           bash shell/build.sh --check
           bash shell/tests/regression.sh
 
+  main-gate:
+    name: Main branch gate
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [validate, compatibility]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs
+        env:
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
+        run: |
+          [[ "$VALIDATE_RESULT" == "success" ]]
+          [[ "$COMPATIBILITY_RESULT" == "success" ]]
+
   release:
     name: Publish release
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -99,17 +107,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install ShellCheck
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes shellcheck
-
-      - name: Build and verify release
-        run: |
-          bash shell/build.sh --check
-          bash shell/build.sh
-          shellcheck -S warning shell/sm.sh shell/build.sh shell/tests/regression.sh
-          bash shell/tests/regression.sh
+      - name: Build release artifact
+        run: bash shell/build.sh
 
       - name: Decide whether to publish
         id: release
@@ -127,12 +126,12 @@ jobs:
           tag="v$version"
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "Release $tag already exists; validation completed without republishing."
+            echo "Release $tag already exists; skipping publication."
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Prepare checksum and minimal notes
+      - name: Prepare release files
         if: steps.release.outputs.publish == 'true'
         shell: bash
         run: |
