@@ -23,7 +23,6 @@ pkg::full_upgrade() {
 # 静默模式失败时回退到 verbose 模式重跑，让用户看到真实 apt 错误
 pkg::ensure_deps() {
     [[ $_DEPS_CHECKED -eq 1 ]] && return 0
-    if [[ -f "$DEPS_FLAG" ]]; then _DEPS_CHECKED=1; return 0; fi
 
     local deps="curl wget jq tar ca-certificates gnupg"
     local missing=""

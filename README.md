@@ -1,15 +1,15 @@
 # Sing-Man
 
-A single-file, modular toolkit for Debian/Ubuntu servers — install Sing-box, harden the firewall, deploy common stacks, and patch the kernel from one interactive menu.
+A single-file, modular toolkit for Debian/Ubuntu servers — install Sing-box, manage its configuration and service, harden UFW, tune TCP, and update the system from one interactive menu.
 
 ## Quick install
 
 ```sh
-curl -fsSL https://github.com/Leovikii/sm/releases/latest/download/sm.sh -o sm.sh && bash sm.sh
+curl -fsSL https://github.com/Leovikii/Sing-Man/releases/latest/download/sm.sh -o sm.sh && bash sm.sh
 ```
 
 ```sh
-wget -qO sm.sh https://github.com/Leovikii/sm/releases/latest/download/sm.sh && bash sm.sh
+wget -qO sm.sh https://github.com/Leovikii/Sing-Man/releases/latest/download/sm.sh && bash sm.sh
 ```
 
 On first run the script copies itself to `/usr/local/bin/sm.sh`. After that, just type:
@@ -23,11 +23,10 @@ sm.sh
 - **Sing-box** — install / upgrade from the official apt repo, manage the systemd service, tail live logs, clean uninstall
 - **Config sync** — pull a JSON config from any URL, validate it, hot-reload the service. Your default URL survives self-updates
 - **System full-upgrade** — patch kernel CVEs with safe defaults (`force-confold`) and a reboot prompt
-- **Common stacks** — install or uninstall **Caddy** and **Docker CE + Compose** with one keypress
 - **UFW firewall** — install with sane defaults (22/80/443), add or delete rules with automatic IPv4/IPv6 dual-stack handling
 - **TCP tuning** — one-tap BBR / network optimization
-- **Self-update** — menu option 9 fetches the latest release and reloads in place
-- **Safe uninstall** — auto-detects every component installed via sm and asks per item; Docker data directory requires a second confirmation
+- **Self-update** — menu option 7 fetches the latest release and reloads in place
+- **Safe uninstall** — asks before removing Sing-box, UFW, the management script, and cached state
 
 ## Architecture
 
@@ -36,6 +35,11 @@ sm.sh
 ```sh
 bash shell/build.sh
 ```
+
+Pull requests into `main` run CI. Script changes must increase `SCRIPT_VERSION`
+in `shell/src/config.sh`. After a successful merge, CD builds and publishes the
+matching immutable release. Protect `main` from direct pushes so releases can
+only originate from reviewed pull requests.
 
 ## Requirements
 

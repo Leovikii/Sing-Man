@@ -121,10 +121,6 @@ sb::update_config_interactive() {
         return 1
     fi
 
-    if [[ "$new_url" != "$default_url" ]]; then
-        sb::set_default_url "$new_url"
-    fi
-
     local url="$new_url"
     mkdir -p "$TMP_DIR"
     local tmp_conf="$TMP_DIR/config.json"
@@ -155,12 +151,17 @@ sb::update_config_interactive() {
         new_md5=$(md5sum "$tmp_conf" | awk '{print $1}')
         if [[ "$old_md5" == "$new_md5" ]]; then
             log::info "配置文件校验通过，但内容未发生变化。"
+            [[ "$new_url" != "$default_url" ]] && sb::set_default_url "$new_url"
             sb::set_last_update_date
             return 0
         fi
     fi
 
-    mv "$tmp_conf" "$target_conf"
+    if ! mv "$tmp_conf" "$target_conf"; then
+        log::err "写入配置文件失败，原配置未被替换。"
+        return 1
+    fi
+    [[ "$new_url" != "$default_url" ]] && sb::set_default_url "$new_url"
     sb::set_last_update_date
     log::info "配置文件校验通过并已应用！更新成功。"
     if ui::confirm "是否重启 Sing-box 服务?"; then
