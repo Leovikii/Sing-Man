@@ -6,7 +6,7 @@ system::full_upgrade() {
     log::info "准备执行系统全量升级 (full-upgrade)..."
     
     log::step "[1/4] 更新软件源索引..."
-    pkg::update || { log::err "apt-get update 失败，请检查软件源。"; return; }
+    pkg::update || { log::err "apt-get update 失败，请检查软件源。"; return 1; }
 
     log::step "[2/4] 获取可更新的软件包列表..."
     local up_list
@@ -33,7 +33,7 @@ system::full_upgrade() {
     log::step "[3/4] 执行 full-upgrade (包含内核升级)..."
     if ! pkg::full_upgrade "${apt_opts[@]}"; then
         log::err "full-upgrade 执行失败。"
-        return
+        return 1
     fi
 
     log::step "[4/4] 清理无用依赖..."

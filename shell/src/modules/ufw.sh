@@ -30,44 +30,106 @@ ufw::_require() {
     fi
 }
 
+ufw::_detect_ssh_ports() {
+    local detected=""
+
+    # SSH_CONNECTION: 客户端IP 客户端端口 服务端IP 服务端端口
+    if [[ -n "${SSH_CONNECTION:-}" ]]; then
+        local connection_port
+        connection_port=$(awk '{print $4}' <<< "$SSH_CONNECTION")
+        [[ "$connection_port" =~ ^[0-9]+$ ]] && detected+="$connection_port"$'\n'
+    fi
+
+    if sys::has_cmd sshd; then
+        detected+=$(sshd -T 2>/dev/null | awk '$1 == "port" && $2 ~ /^[0-9]+$/ {print $2}')
+        detected+=$'\n'
+    fi
+
+    printf '%s' "$detected" | awk '$1 >= 1 && $1 <= 65535' | sort -nu
+}
+
+ufw::_get_ssh_ports() {
+    local detected input port
+    local ports=()
+    detected=$(ufw::_detect_ssh_ports)
+    if [[ -n "$detected" ]]; then
+        printf '%s\n' "$detected"
+        return 0
+    fi
+
+    log::warn "未能自动检测 SSH 监听端口；为避免启用防火墙后失联，必须手动指定。" >&2
+    ui::prompt "请输入 SSH 端口（多个端口用空格分隔）: " input
+    [[ -n "$input" ]] || return 1
+    read -r -a ports <<< "$input"
+    for port in "${ports[@]}"; do
+        if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+            log::err "无效的 SSH 端口: $port" >&2
+            return 1
+        fi
+        printf '%s\n' "$port"
+    done | sort -nu
+}
+
 ufw::install() {
     if ufw::is_installed; then
         log::warn "UFW 已经安装，正在检查更新..."
-        pkg::update quiet
+        if ! pkg::update quiet; then
+            log::err "软件源刷新失败，无法检查 UFW 更新。"
+            return 1
+        fi
         if apt list --upgradable 2>/dev/null | grep -q "^ufw/"; then
             log::info "发现 UFW 更新"
             if ui::confirm "是否更新 UFW?"; then
-                pkg::install_quiet ufw && log::info "UFW 更新完成"
+                if pkg::install_quiet ufw; then
+                    log::info "UFW 更新完成"
+                else
+                    log::err "UFW 更新失败。"
+                    return 1
+                fi
             else
                 log::info "跳过更新"
             fi
         else
             log::info "UFW 已是最新版本"
         fi
-        return
+        return 0
     fi
 
     log::info "正在安装 UFW..."
-    pkg::update quiet
+    if ! pkg::update quiet; then
+        log::err "软件源刷新失败，无法安装 UFW。"
+        return 1
+    fi
     if ! pkg::install_quiet ufw; then
         log::err "UFW 安装失败"
         return 1
     fi
 
     log::info "UFW 安装成功"
-    log::warn "自动放行常用端口以防止服务中断 (IPv4/IPv6 双栈)"
-    ufw::allow 22 tcp "SSH TCP"
-    ufw::allow 22 udp "SSH UDP"
-    ufw::allow 80 tcp "HTTP TCP"
-    ufw::allow 80 udp "HTTP UDP"
-    ufw::allow 443 tcp "HTTPS TCP"
-    ufw::allow 443 udp "HTTPS UDP"
+    local ssh_ports port
+    if ! ssh_ports=$(ufw::_get_ssh_ports) || [[ -z "$ssh_ports" ]]; then
+        log::err "未取得有效 SSH 端口，UFW 不会启用。"
+        return 1
+    fi
+
+    log::warn "自动放行检测到的 SSH 端口及 80/443 端口 (TCP/UDP、IPv4/IPv6 双栈)"
+    log::info "检测到 SSH 端口: $(tr '\n' ' ' <<< "$ssh_ports" | sed 's/[[:space:]]*$//')"
+    while IFS= read -r port; do
+        ufw::allow "$port" tcp "SSH TCP" || return 1
+        ufw::allow "$port" udp "SSH UDP" || return 1
+    done <<< "$ssh_ports"
+    ufw::allow 80 tcp "HTTP TCP" || return 1
+    ufw::allow 80 udp "HTTP UDP" || return 1
+    ufw::allow 443 tcp "HTTPS TCP" || return 1
+    ufw::allow 443 udp "HTTPS UDP" || return 1
 
     log::step "正在启用 UFW..."
     if echo "y" | ufw enable >/dev/null 2>&1; then
         log::info "UFW 已自动启用"
+        return 0
     else
         log::err "UFW 启用失败"
+        return 1
     fi
 }
 
@@ -75,8 +137,10 @@ ufw::enable() {
     ufw::_require || return
     if echo "y" | ufw enable >/dev/null 2>&1; then
         log::info "UFW 已启用"
+        return 0
     else
         log::err "UFW 启用失败"
+        return 1
     fi
 }
 
@@ -84,8 +148,10 @@ ufw::disable() {
     ufw::_require || return
     if ufw disable >/dev/null 2>&1; then
         log::info "UFW 已禁用"
+        return 0
     else
         log::err "UFW 禁用失败"
+        return 1
     fi
 }
 
@@ -93,8 +159,10 @@ ufw::reload() {
     ufw::_require || return
     if ufw reload >/dev/null 2>&1; then
         log::info "UFW 已重启"
+        return 0
     else
         log::err "UFW 重启失败"
+        return 1
     fi
 }
 
@@ -107,7 +175,10 @@ ufw::uninstall() {
     ui::confirm "确认卸载?" || { log::info "取消卸载"; return; }
 
     ufw disable >/dev/null 2>&1
-    pkg::purge ufw >/dev/null 2>&1
+    if ! pkg::purge ufw >/dev/null 2>&1; then
+        log::err "UFW 卸载失败，已保留现有配置。"
+        return 1
+    fi
     rm -rf /etc/ufw /lib/ufw /var/lib/ufw
     log::info "UFW 已完全卸载"
 }
@@ -163,8 +234,8 @@ ufw::delete_rule_interactive() {
         return
     fi
 
-    log::warn "UFW 会为每个端口自动创建 IPv4 和 IPv6 规则"
-    log::warn "选择任意一条，脚本将智能删除该端口的所有相关规则"
+    log::warn "为避免误删来源限制、deny/reject 或接口规则，脚本只删除明确选择的编号。"
+    log::warn "IPv4 与 IPv6 规则如需同时删除，请分别选择。"
     local rule_num
     ui::prompt "请输入要删除的规则编号 (0 取消): " rule_num
     if [[ ! "$rule_num" =~ ^[0-9]+$ ]] || [[ "$rule_num" == "0" ]]; then
@@ -181,67 +252,15 @@ ufw::delete_rule_interactive() {
     fi
     log::info "已选择规则: $rule_info"
 
-    local rules_to_delete=("$rule_num")
-    local delete_other="n"
-
-    # 提取类似 22/tcp 的结构，不匹配则说明是复杂规则（如应用配置 Nginx Full 或带 IP 的规则）
-    local target_def
-    target_def=$(echo "$rule_info" | sed -E 's/^\[[[:space:]]*[0-9]+\][[:space:]]+([0-9]+\/(tcp|udp)).*/\1/' 2>/dev/null)
-    
-    if [[ "$target_def" =~ ^([0-9]+)/(tcp|udp)$ ]]; then
-        local port="${BASH_REMATCH[1]}"
-        local proto="${BASH_REMATCH[2]}"
-        local other="udp"
-        [[ "$proto" == "udp" ]] && other="tcp"
-
-        if echo "$rules_raw" | grep -q "${port}/${other}"; then
-            if ui::confirm "检测到对应的 ${port}/${other} 规则，是否一并删除?"; then
-                delete_other="y"
-            fi
-        fi
-        
-        # 如果是标准端口规则，我们通过遍历寻找所有相关编号以解决 IPv4/IPv6 双胞胎问题
-        rules_to_delete=()
-        while IFS= read -r line; do
-            if echo "$line" | grep -q -w "${port}/${proto}"; then
-                local num
-                num=$(echo "$line" | sed 's/^\[ *\([0-9]\+\)\].*/\1/')
-                [[ -n "$num" ]] && rules_to_delete+=("$num")
-            fi
-        done < <(echo "$rules_raw" | grep "^\[")
-
-        if [[ "$delete_other" == "y" ]]; then
-            while IFS= read -r line; do
-                if echo "$line" | grep -q -w "${port}/${other}"; then
-                    local num
-                    num=$(echo "$line" | sed 's/^\[ *\([0-9]\+\)\].*/\1/')
-                    [[ -n "$num" ]] && rules_to_delete+=("$num")
-                fi
-            done < <(echo "$rules_raw" | grep "^\[")
-        fi
-    else
-        log::info "此为非标准端口规则 (或应用名规则)，将仅删除您选择的单条规则。"
-    fi
-
-    # 倒序去重，避免删除时编号偏移
-    IFS=$'\n' read -r -d '' -a rules_to_delete < <(printf '%s\n' "${rules_to_delete[@]}" | sort -rn -u && printf '\0')
-
-    if [[ ${#rules_to_delete[@]} -eq 0 ]]; then
-        log::err "未找到匹配的规则"
-        return 1
-    fi
-
-    log::warn "总共将删除 ${#rules_to_delete[@]} 条规则 (编号: ${rules_to_delete[*]})"
+    log::warn "将删除规则编号 $rule_num: $rule_info"
     ui::confirm "确认删除?" || { log::warn "取消删除"; return; }
 
-    local num
-    for num in "${rules_to_delete[@]}"; do
-        if echo "y" | ufw delete "$num" >/dev/null 2>&1; then
-            log::info "已删除规则 $num"
-        else
-            log::err "删除规则 $num 失败"
-        fi
-    done
+    if echo "y" | ufw delete "$rule_num" >/dev/null 2>&1; then
+        log::info "已删除规则 $rule_num"
+    else
+        log::err "删除规则 $rule_num 失败"
+        return 1
+    fi
     log::info "更新后的规则列表："
     ufw::_status_numbered
 }

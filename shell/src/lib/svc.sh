@@ -18,8 +18,14 @@ svc::ensure_running() {
     local name="$1"
     local ok_msg="${2:-$name 已启动}"
     local fail_msg="${3:-$name 启动失败，请检查 journalctl -u $name}"
-    svc::enable "$name"
-    svc::start "$name"
+    if ! svc::enable "$name"; then
+        log::warn "无法设置 $name 开机启动。"
+        return 1
+    fi
+    if ! svc::start "$name"; then
+        log::warn "$fail_msg"
+        return 1
+    fi
     if svc::is_active "$name"; then
         log::info "$ok_msg"
         return 0

@@ -36,7 +36,10 @@ jobs:
       - name: ShellCheck
         run: |
           bash shell/build.sh
-          shellcheck -S error shell/sm.sh shell/build.sh
+          shellcheck -S error shell/sm.sh shell/build.sh shell/tests/regression.sh
+
+      - name: Regression tests
+        run: bash shell/tests/regression.sh
 
       - name: Read and validate version
         shell: bash
@@ -77,7 +80,8 @@ jobs:
         run: |
           bash shell/build.sh --check
           bash shell/build.sh
-          shellcheck -S error shell/sm.sh shell/build.sh
+          shellcheck -S error shell/sm.sh shell/build.sh shell/tests/regression.sh
+          bash shell/tests/regression.sh
 
       - name: Prepare checksum and minimal notes
         env:

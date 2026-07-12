@@ -100,6 +100,7 @@ self::check_update() {
     fi
 
     local download_url="https://github.com/Leovikii/Sing-Man/releases/download/v${target_version}/sm.sh"
+    local checksum_url="${download_url}.sha256"
 
     mkdir -p "$TMP_DIR"
     log::info "正在下载新版脚本 v${target_version}..."
@@ -111,6 +112,22 @@ self::check_update() {
 
     if [[ ! -s "$temp_script" ]]; then
         log::err "下载的新版本文件为空，已取消更新。"
+        return 1
+    fi
+    local checksum_file="$TMP_DIR/sm.sh.sha256"
+    if ! net::download "$checksum_url" "$checksum_file"; then
+        log::err "下载校验和文件失败，已取消更新。"
+        return 1
+    fi
+    local expected_sha actual_sha
+    expected_sha=$(awk '$2 == "sm.sh" || $2 == "*sm.sh" {print $1; exit}' "$checksum_file")
+    if [[ ! "$expected_sha" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        log::err "发布校验和格式无效，已取消更新。"
+        return 1
+    fi
+    actual_sha=$(sha256sum "$temp_script" | awk '{print $1}')
+    if [[ "${actual_sha,,}" != "${expected_sha,,}" ]]; then
+        log::err "新版本脚本 SHA-256 校验失败，已取消更新。"
         return 1
     fi
     if ! bash -n "$temp_script"; then
@@ -163,7 +180,6 @@ self::uninstall() {
     echo -e "是否删除 ${BLUE}本管理脚本 ($SCRIPT_NAME)${PLAIN} 及缓存文件？"
     if ui::confirm "请输入"; then
         [[ -f "$INSTALL_PATH" ]] && rm -f "$INSTALL_PATH" && log::info "脚本文件已删除: $INSTALL_PATH"
-        rm -f "$DEPS_FLAG"
         rm -rf /var/lib/sm
         echo -e "${GREEN}卸载完成。再见！${PLAIN}"
         exit 0

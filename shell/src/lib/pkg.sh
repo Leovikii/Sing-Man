@@ -24,44 +24,74 @@ pkg::full_upgrade() {
 pkg::ensure_deps() {
     [[ $_DEPS_CHECKED -eq 1 ]] && return 0
 
-    local deps="curl wget jq tar ca-certificates gnupg"
-    local missing=""
-    for dep in $deps; do
-        sys::has_cmd "$dep" || missing="$missing $dep"
+    local missing=()
+    local spec cmd package
+    local command_packages=(
+        "jq:jq"
+        "tar:tar"
+        "gpg:gnupg"
+    )
+
+    for spec in "${command_packages[@]}"; do
+        cmd="${spec%%:*}"
+        package="${spec#*:}"
+        sys::has_cmd "$cmd" || missing+=("$package")
     done
 
-    if [[ -n "$missing" ]]; then
-        log::info "正在安装必要依赖:$missing"
+    # curl 与 wget 只需存在一个；全部缺失时优先安装 curl。
+    if ! sys::has_cmd curl && ! sys::has_cmd wget; then
+        missing+=("curl")
+    fi
+
+    # ca-certificates 没有同名命令，必须按软件包状态检查。
+    if ! dpkg-query -W -f='${Status}' ca-certificates 2>/dev/null | grep -q '^install ok installed$'; then
+        missing+=("ca-certificates")
+    fi
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        log::info "正在安装必要依赖: ${missing[*]}"
         if ! pkg::update quiet; then
             log::warn "apt-get update 静默失败，重试 verbose 模式以暴露错误..."
             pkg::update || { log::err "apt-get update 失败，请检查软件源/DNS/网络"; return 1; }
         fi
-        if ! pkg::install_quiet $missing; then
+        if ! pkg::install_quiet "${missing[@]}"; then
             log::warn "依赖安装静默失败，重试 verbose 模式以暴露错误..."
-            if ! pkg::install $missing; then
-                log::err "依赖安装失败:$missing"
+            if ! pkg::install "${missing[@]}"; then
+                log::err "依赖安装失败: ${missing[*]}"
                 log::info "常见原因: 软件源失效 / DNS 故障 / 签名过期 / 网络受限"
                 return 1
             fi
         fi
     fi
-    mkdir -p "$(dirname "$DEPS_FLAG")"
-    touch "$DEPS_FLAG"
     _DEPS_CHECKED=1
 }
 
 pkg::add_gpg_key() {
     local url="$1" dest="$2" mode="${3:-}"
+    local staged
+    staged=$(mktemp "${dest}.new.XXXXXXXX") || return 1
     if [[ "$mode" == "--dearmor" ]]; then
-        net::fetch "$url" | gpg --dearmor --yes -o "$dest" || return 1
+        if ! net::fetch "$url" | gpg --dearmor --yes -o "$staged"; then
+            rm -f -- "$staged"
+            return 1
+        fi
     else
-        net::fetch "$url" > "$dest" || return 1
-        [[ -s "$dest" ]] || { rm -f "$dest"; return 1; }
+        if ! net::fetch "$url" > "$staged" || [[ ! -s "$staged" ]]; then
+            rm -f -- "$staged"
+            return 1
+        fi
     fi
-    chmod a+r "$dest"
+    chmod 0644 "$staged" || { rm -f -- "$staged"; return 1; }
+    mv -f -- "$staged" "$dest"
 }
 
 pkg::write_repo() {
     local content="$1" dest="$2"
-    echo "$content" > "$dest"
+    local staged
+    staged=$(mktemp "${dest}.new.XXXXXXXX") || return 1
+    if ! printf '%s\n' "$content" > "$staged" || ! chmod 0644 "$staged"; then
+        rm -f -- "$staged"
+        return 1
+    fi
+    mv -f -- "$staged" "$dest"
 }
