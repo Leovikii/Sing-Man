@@ -6,6 +6,8 @@ set -uo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PASS=0
 FAIL=0
+# shellcheck source=../src/lib/sys.sh
+source "$ROOT_DIR/shell/src/lib/sys.sh"
 
 run_test() {
     local name="$1"
@@ -221,6 +223,7 @@ test_config_restart_failure_rolls_back() {
         [[ "$restart_calls" -ge 2 ]]
     }
     svc::is_active() { return 0; }
+    svc::wait_active() { return 0; }
     # shellcheck source=../src/modules/sb.sh
     source "$ROOT_DIR/shell/src/modules/sb.sh"
 

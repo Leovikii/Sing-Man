@@ -1,5 +1,5 @@
 # ==============================================================================
-# pkg:: APT 软件包管理封装
+# pkg:: 软件包管理（APT / APK）
 # ==============================================================================
 
 pkg::_apt() {
@@ -16,6 +16,10 @@ pkg::_apt_noninteractive() {
 }
 
 pkg::update() {
+    if sys::is_openwrt; then
+        if [[ "${1:-}" == "quiet" ]]; then apk update >/dev/null 2>&1; else apk update; fi
+        return $?
+    fi
     if [[ "${1:-}" == "quiet" ]]; then
         pkg::_apt update >/dev/null 2>&1
     else
@@ -23,14 +27,26 @@ pkg::update() {
     fi
 }
 
-pkg::install()       { pkg::_apt_noninteractive install -y "$@"; }
-pkg::install_quiet() { pkg::_apt_noninteractive install -y "$@" >/dev/null 2>&1; }
-pkg::purge()         { pkg::_apt_noninteractive purge -y "$@"; }
-pkg::autoremove()    { pkg::_apt_noninteractive autoremove -y --purge "$@"; }
-pkg::clean()         { pkg::_apt clean; }
+pkg::install() {
+    if sys::is_openwrt; then apk add "$@"; else pkg::_apt_noninteractive install -y "$@"; fi
+}
+pkg::install_quiet() { pkg::install "$@" >/dev/null 2>&1; }
+pkg::purge()         { sys::require_system_tools && pkg::_apt_noninteractive purge -y "$@"; }
+pkg::autoremove()    { sys::require_system_tools && pkg::_apt_noninteractive autoremove -y --purge "$@"; }
+pkg::clean()         { sys::require_system_tools && pkg::_apt clean; }
 
 pkg::full_upgrade() {
+    sys::require_system_tools || return 1
     pkg::_apt_noninteractive "$@" -y full-upgrade
+}
+
+# 必须先补齐 flock 才能获取运行锁；这里只安装锁依赖，不做其他初始化。
+pkg::ensure_lock_dep() {
+    sys::has_cmd flock && return 0
+    log::info "正在安装运行锁依赖 flock..."
+    local package="util-linux"
+    sys::is_openwrt && package="flock"
+    pkg::update && pkg::install "$package" && sys::has_cmd flock
 }
 
 # 静默模式失败时回退到 verbose 模式重跑，让用户看到真实 apt 错误
@@ -41,9 +57,13 @@ pkg::ensure_deps() {
     local spec cmd package
     local command_packages=(
         "jq:jq"
-        "tar:tar"
-        "gpg:gnupg"
     )
+    if sys::is_openwrt; then
+        command_packages+=("curl:curl" "install:coreutils-install" "cmp:diffutils"
+            "realpath:coreutils-realpath" "timeout:coreutils-timeout" "uci:uci")
+    else
+        command_packages+=("tar:tar" "gpg:gnupg")
+    fi
 
     for spec in "${command_packages[@]}"; do
         cmd="${spec%%:*}"
@@ -52,20 +72,22 @@ pkg::ensure_deps() {
     done
 
     # curl 与 wget 只需存在一个；全部缺失时优先安装 curl。
-    if ! sys::has_cmd curl && ! sys::has_cmd wget; then
+    if ! sys::is_openwrt && ! sys::has_cmd curl && ! sys::has_cmd wget; then
         missing+=("curl")
     fi
 
     # ca-certificates 没有同名命令，必须按软件包状态检查。
-    if ! dpkg-query -W -f='${Status}' ca-certificates 2>/dev/null | grep -q '^install ok installed$'; then
+    if sys::is_openwrt; then
+        apk info --exists ca-bundle >/dev/null 2>&1 || missing+=("ca-bundle")
+    elif ! dpkg-query -W -f='${Status}' ca-certificates 2>/dev/null | grep -q '^install ok installed$'; then
         missing+=("ca-certificates")
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         log::info "正在安装必要依赖: ${missing[*]}"
         if ! pkg::update quiet; then
-            log::warn "apt-get update 静默失败，重试 verbose 模式以暴露错误..."
-            pkg::update || { log::err "apt-get update 失败，请检查软件源/DNS/网络"; return 1; }
+            log::warn "软件源索引刷新失败，重试以显示错误..."
+            pkg::update || { log::err "软件源索引刷新失败，请检查软件源/DNS/网络"; return 1; }
         fi
         if ! pkg::install_quiet "${missing[@]}"; then
             log::warn "依赖安装静默失败，重试 verbose 模式以暴露错误..."

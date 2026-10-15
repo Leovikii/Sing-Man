@@ -3,6 +3,7 @@
 # ==============================================================================
 
 system::full_upgrade() {
+    sys::require_system_tools || return 1
     log::info "准备执行系统全量升级 (full-upgrade)..."
     
     log::step "[1/4] 更新软件源索引..."

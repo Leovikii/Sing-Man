@@ -3,16 +3,22 @@
 # ==============================================================================
 
 SCRIPT_NAME="sm.sh"
-SCRIPT_VERSION="3.2.7"
+SCRIPT_VERSION="3.3.0"
+PLATFORM=""
 INSTALL_PATH="/usr/local/bin/$SCRIPT_NAME"
 SCRIPT_UPDATE_URL="https://api.github.com/repos/Leovikii/Sing-Man/releases"
 SAGERNET_GPG_FINGERPRINT="2C317FBD5D886B4E89BAE8DA6D9152172A2B2F0C"
 
-CONFIG_URL_FILE="/var/lib/sm/default_url"
-CONFIG_DATE_FILE="/var/lib/sm/config_last_update"
-UPDATE_CHANNEL_FILE="/var/lib/sm/update_channel"
+STATE_DIR="/var/lib/sm"
+CONFIG_URL_FILE="$STATE_DIR/default_url"
+CONFIG_DATE_FILE="$STATE_DIR/config_last_update"
+UPDATE_CHANNEL_FILE="$STATE_DIR/update_channel"
 SB_CONFIG_DIR="/etc/sing-box"
 SB_CONFIG_FILE="$SB_CONFIG_DIR/config.json"
+SB_RELEASE_URL="https://api.github.com/repos/SagerNet/sing-box/releases/latest"
+SB_BINARY_FILE="/usr/bin/sing-box"
+SB_INIT_FILE="/etc/init.d/sing-box"
+SB_UCI_FILE="/etc/config/sing-box"
 TCPX_URL="https://github.com/ylx2016/Linux-NetSpeed/raw/master/tcpx.sh"
 LOCK_FILE="/run/lock/sm-manager.lock"
 SYSTEMCTL_TIMEOUT=30
@@ -30,6 +36,17 @@ PLAIN=$'\033[0m'
 TMP_DIR=""
 LOCK_HELD=0
 _DEPS_CHECKED=0
+
+runtime::set_platform_paths() {
+    if sys::is_openwrt; then
+        INSTALL_PATH="/usr/bin/$SCRIPT_NAME"
+        STATE_DIR="/etc/sm"
+        LOCK_FILE="/var/lock/sm-manager.lock"
+    fi
+    CONFIG_URL_FILE="$STATE_DIR/default_url"
+    CONFIG_DATE_FILE="$STATE_DIR/config_last_update"
+    UPDATE_CHANNEL_FILE="$STATE_DIR/update_channel"
+}
 
 runtime::init_tmp() {
     [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && return 0

@@ -3,6 +3,7 @@
 # ==============================================================================
 
 menu::sb_service() {
+    if sys::is_openwrt; then sb::require_openwrt_package || return 1; fi
     while true; do
         ui::header "Sing-box 服务管理"
         echo -e " 当前状态: $(sb::status)"
@@ -17,9 +18,9 @@ menu::sb_service() {
         local opt
         ui::prompt " 请选择: " opt
         case "$opt" in
-            1) svc::start sing-box && log::info "已启动" ;;
+            1) svc::start sing-box && svc::wait_active sing-box && log::info "已启动" || log::err "启动失败，请检查 $(svc::log_hint)。" ;;
             2) svc::stop sing-box && log::info "已停止" ;;
-            3) svc::restart sing-box && log::info "已重启" ;;
+            3) svc::restart sing-box && svc::wait_active sing-box && log::info "已重启" || log::err "重启失败，请检查 $(svc::log_hint)。" ;;
             4) svc::logs sing-box ;;
             5) ui::confirm "确定要彻底卸载 Sing-box 吗?" && sb::uninstall ;;
             0) return ;;

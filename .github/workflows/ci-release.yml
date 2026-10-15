@@ -26,13 +26,14 @@ jobs:
       - name: Install ShellCheck
         run: |
           sudo apt-get update
-          sudo apt-get install --yes shellcheck
+          sudo apt-get install --yes shellcheck jq
 
       - name: Build and test
         run: |
           bash shell/build.sh
-          shellcheck -S warning shell/sm.sh shell/build.sh shell/tests/regression.sh
+          shellcheck -S warning shell/sm.sh shell/build.sh shell/tests/regression.sh shell/tests/openwrt.sh
           bash shell/tests/regression.sh
+          bash shell/tests/openwrt.sh
 
       - name: Validate version
         shell: bash
@@ -70,7 +71,7 @@ jobs:
       - name: Install test runtime
         run: |
           apt-get update
-          apt-get install --yes bash ca-certificates coreutils gawk git grep sed util-linux
+          apt-get install --yes bash ca-certificates coreutils gawk git grep jq sed util-linux
 
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -79,25 +80,47 @@ jobs:
         run: |
           bash shell/build.sh --check
           bash shell/tests/regression.sh
+          bash shell/tests/openwrt.sh
+
+  openwrt:
+    name: OpenWrt 25 (APK and BusyBox)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Build and test in OpenWrt rootfs
+        run: |
+          docker run --rm --entrypoint /bin/sh \
+            -v "$PWD:/work" -w /work openwrt/rootfs:x86-64-25.12.0 -c '
+              set -eu
+              apk update
+              apk add bash curl ca-bundle jq flock coreutils-install coreutils-realpath coreutils-timeout coreutils-stat diffutils gzip
+              bash shell/build.sh --check
+              bash shell/tests/regression.sh
+              bash shell/tests/openwrt.sh
+            '
 
   main-gate:
     name: Main branch gate
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [validate, compatibility]
+    needs: [validate, compatibility, openwrt]
     runs-on: ubuntu-latest
     steps:
       - name: Verify required jobs
         env:
           VALIDATE_RESULT: ${{ needs.validate.result }}
           COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
+          OPENWRT_RESULT: ${{ needs.openwrt.result }}
         run: |
           [[ "$VALIDATE_RESULT" == "success" ]]
           [[ "$COMPATIBILITY_RESULT" == "success" ]]
+          [[ "$OPENWRT_RESULT" == "success" ]]
 
   release:
     name: Publish release
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: validate
+    needs: [validate, openwrt]
     runs-on: ubuntu-latest
     permissions:
       contents: write
