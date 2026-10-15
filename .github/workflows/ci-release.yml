@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   validate:
     name: Core validation
@@ -23,10 +27,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install ShellCheck
+      - name: Ensure validation tools
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes shellcheck jq
+          if ! command -v shellcheck >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends shellcheck jq
+          fi
+          shellcheck --version
+          jq --version
 
       - name: Build and test
         run: |
@@ -71,7 +79,7 @@ jobs:
       - name: Install test runtime
         run: |
           apt-get update
-          apt-get install --yes bash ca-certificates coreutils gawk git grep jq sed util-linux
+          apt-get install --yes --no-install-recommends bash ca-certificates coreutils gawk git grep jq sed util-linux
 
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

@@ -4,7 +4,7 @@
 
 main() {
     sys::require_root
-    sys::require_supported || exit 1
+    sys::require_supported /etc/os-release || exit 1
     runtime::set_platform_paths
     runtime::init_tmp || exit 1
     pkg::ensure_lock_dep || { log::err "运行锁依赖准备失败。"; exit 1; }
