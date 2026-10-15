@@ -3,6 +3,7 @@
 # ==============================================================================
 
 menu::ufw_manage() {
+    sys::require_system_tools || return 1
     while true; do
         ui::header "UFW 防火墙管理"
         echo -e " 当前状态: $(ufw::status_text)"
@@ -30,6 +31,7 @@ menu::ufw_manage() {
 }
 
 menu::ufw_rules() {
+    sys::require_system_tools || return 1
     while true; do
         ui::header "UFW 规则管理"
         echo -e " 当前状态: $(ufw::status_text)"
@@ -53,6 +55,7 @@ menu::ufw_rules() {
 }
 
 menu::ufw() {
+    sys::require_system_tools || return 1
     while true; do
         ui::header "UFW 防火墙"
         echo -e " 当前状态: $(ufw::status_text)"

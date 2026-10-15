@@ -3,6 +3,7 @@
 # ==============================================================================
 
 tcp::run() {
+    sys::require_system_tools || return 1
     mkdir -p "$TMP_DIR"
     local tcp_local="$TMP_DIR/install_tcp.sh"
 

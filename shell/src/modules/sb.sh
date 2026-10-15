@@ -21,6 +21,7 @@ sb::version() {
 }
 
 sb::install() {
+    if sys::is_openwrt; then sb::install_openwrt; return $?; fi
     log::info "准备安装/更新 Sing-box..."
 
     mkdir -p /etc/apt/keyrings
@@ -48,6 +49,7 @@ sb::install() {
 }
 
 sb::uninstall() {
+    if sys::is_openwrt; then sb::uninstall_openwrt; return $?; fi
     log::warn "即将卸载 Sing-box 及其软件源、密钥"
     ui::confirm "确认卸载?" || { log::info "取消卸载"; return; }
 
@@ -72,6 +74,7 @@ sb::uninstall() {
 }
 
 sb::require_installed() {
+    if sys::is_openwrt; then sb::require_openwrt_package || return 1; fi
     if ! sys::has_cmd sing-box; then
         log::warn "未检测到 Sing-box 内核，配置与服务管理需要依赖它。"
         if ui::confirm "是否立即安装 Sing-box?"; then
@@ -118,6 +121,7 @@ sb::set_last_update_date() {
 }
 
 sb::update_config_interactive() {
+    if sys::is_openwrt; then sb::sync_openwrt_config_path || return 1; fi
     local default_url
     default_url=$(sb::get_default_url)
     local last_date
@@ -216,15 +220,15 @@ sb::update_config_interactive() {
         return 1
     fi
     if ui::confirm "是否重启 Sing-box 服务?"; then
-        if svc::restart sing-box && svc::is_active sing-box; then
+        if svc::restart sing-box && svc::wait_active sing-box; then
             rm -f -- "$backup_conf"
             log::info "服务已重启。"
         else
             log::err "服务重启失败，正在恢复旧配置。"
             if [[ "$had_old" -eq 1 && -f "$backup_conf" ]]; then
                 if mv -f -- "$backup_conf" "$target_conf" && chmod 0600 "$target_conf"; then
-                    if ! svc::restart sing-box >/dev/null 2>&1; then
-                        log::err "旧配置已恢复，但服务仍无法启动，请检查 journalctl -u sing-box。"
+                    if ! { svc::restart sing-box && svc::wait_active sing-box; } >/dev/null 2>&1; then
+                        log::err "旧配置已恢复，但服务仍无法启动，请检查 $(svc::log_hint)。"
                     fi
                 else
                     log::err "自动恢复旧配置失败，请立即检查 $backup_conf。"

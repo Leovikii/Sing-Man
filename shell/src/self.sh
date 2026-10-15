@@ -5,6 +5,7 @@
 self::install_shortcut() {
     [[ "$(realpath "$0")" == "$(realpath "$INSTALL_PATH" 2>/dev/null)" ]] && return 0
     log::info "首次运行，正在执行自安装..."
+    mkdir -p "$(dirname "$INSTALL_PATH")" || return 1
     if ! install -m 0755 "$0" "$INSTALL_PATH"; then
         log::err "安装管理脚本失败: $INSTALL_PATH"
         return 1
@@ -233,7 +234,7 @@ self::uninstall() {
         echo
     fi
 
-    if ufw::is_installed; then
+    if ! sys::is_openwrt && ufw::is_installed; then
         if ui::confirm "检测到 ${BLUE}UFW${PLAIN}，是否卸载? (将丢失所有防火墙规则)"; then
             ufw::uninstall
         else
@@ -245,7 +246,7 @@ self::uninstall() {
     echo -e "是否删除 ${BLUE}本管理脚本 ($SCRIPT_NAME)${PLAIN} 及缓存文件？"
     if ui::confirm "请输入"; then
         [[ -f "$INSTALL_PATH" ]] && rm -f "$INSTALL_PATH" && log::info "脚本文件已删除: $INSTALL_PATH"
-        rm -rf /var/lib/sm
+        rm -rf -- "$STATE_DIR"
         echo -e "${GREEN}卸载完成。再见！${PLAIN}"
         exit 0
     else

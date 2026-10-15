@@ -2,7 +2,7 @@
 # ufw:: UFW 防火墙业务模块
 # ==============================================================================
 
-ufw::is_installed() { sys::has_cmd ufw; }
+ufw::is_installed() { ! sys::is_openwrt && sys::has_cmd ufw; }
 
 # 加 timeout 防止某些 nf_tables 状态下 ufw status numbered 卡死
 ufw::_status_numbered() {
@@ -24,6 +24,7 @@ ufw::status_text() {
 }
 
 ufw::_require() {
+    sys::require_system_tools || return 1
     if ! ufw::is_installed; then
         log::err "UFW 未安装，请先安装 UFW"
         return 1
@@ -98,6 +99,7 @@ ufw::_ensure_allow() {
 }
 
 ufw::ensure_baseline_rules() {
+    sys::require_system_tools || return 1
     local ssh_ports port
     # 通过 nameref 传给 _ensure_allow / _rollback_added_rules。
     # shellcheck disable=SC2034
@@ -127,6 +129,7 @@ ufw::ensure_baseline_rules() {
 }
 
 ufw::install() {
+    sys::require_system_tools || return 1
     if ufw::is_installed; then
         log::warn "UFW 已经安装，正在检查更新..."
         if ! pkg::update quiet; then
@@ -175,6 +178,7 @@ ufw::install() {
 }
 
 ufw::enable() {
+    sys::require_system_tools || return 1
     ufw::_require || return
     ufw::ensure_baseline_rules || return 1
     if echo "y" | ufw enable >/dev/null 2>&1; then
@@ -187,6 +191,7 @@ ufw::enable() {
 }
 
 ufw::disable() {
+    sys::require_system_tools || return 1
     ufw::_require || return
     if ufw disable >/dev/null 2>&1; then
         log::info "UFW 已禁用"
@@ -198,6 +203,7 @@ ufw::disable() {
 }
 
 ufw::reload() {
+    sys::require_system_tools || return 1
     ufw::_require || return
     if ufw reload >/dev/null 2>&1; then
         log::info "UFW 已重启"
@@ -209,6 +215,7 @@ ufw::reload() {
 }
 
 ufw::uninstall() {
+    sys::require_system_tools || return 1
     if ! ufw::is_installed; then
         log::warn "UFW 未安装"
         return
@@ -226,6 +233,7 @@ ufw::uninstall() {
 }
 
 ufw::allow() {
+    sys::require_system_tools || return 1
     local port="$1" proto="$2" comment="${3:-Port ${1}/${2}}"
     if ufw allow "${port}/${proto}" comment "$comment" >/dev/null 2>&1; then
         log::info "已放行 ${port}/${proto} (IPv4/IPv6)"
