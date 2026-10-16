@@ -40,6 +40,7 @@ sm.sh
 ## Features
 
 - **Sing-box** — Debian/Ubuntu uses the official apt repo and systemd; OpenWrt installs the latest stable OpenWrt APK from official SagerNet GitHub Releases, verifies its SHA-256 digest, and uses the package's native procd/UCI service and logread
+- **Autostart management (3.3.1)** — main/service menus show boot status separately from runtime status; enable or disable boot startup through native systemd or OpenWrt procd/UCI, without starting or stopping the service
 - **Config sync** — pull a JSON config from any URL, validate it, hot-reload the service. Your default URL survives self-updates
 - **System full-upgrade** — patch kernel CVEs with safe defaults (`force-confold`) and a reboot prompt
 - **UFW firewall** — install with sane defaults (22/80/443), add or delete rules with automatic IPv4/IPv6 dual-stack handling
@@ -49,6 +50,14 @@ sm.sh
 - **Safer operations** — single-instance locking, HTTPS-only downloads, pinned repository key fingerprint, configuration rollback
 - **Safe uninstall** — asks before removing Sing-box, UFW, the management script, and cached state
 
+## Boot startup (3.3.1)
+
+Service menu options 6 and 7 enable or disable boot startup without changing the current running state. Manual start, stop and restart preserve the boot startup choice. First installation enables startup by default; core updates and OpenWrt APK rollback preserve the existing choice. A stopped service stays stopped after a core update.
+
+On Debian/Ubuntu, status comes from `systemctl is-enabled`. Masked, temporary, static, missing and unavailable services are shown separately; the script never automatically unmasks a service. Query failures are shown as unknown, not disabled.
+
+On OpenWrt, disabling startup removes the native rc.d startup links and leaves the UCI service permission available for manual start. Enabling startup also enables `sing-box.main.enabled`. If startup links exist but UCI blocks the service, the menu reports that startup cannot take effect. Manually starting this blocked service enables its UCI permission and disables boot startup, keeping effective startup off. Native true values (`1`, `on`, `true`, `yes`, `enabled`) are respected.
+
 ## OpenWrt support (3.3.0)
 
 Only OpenWrt 25 and newer with `apk` is supported. Older `opkg` releases and unversioned SNAPSHOT builds are rejected. The script requires Bash; it does not run under BusyBox ash.
@@ -57,6 +66,7 @@ Only OpenWrt 25 and newer with `apk` is supported. Older `opkg` releases and unv
 | --- | --- | --- |
 | Sing-box install, update, uninstall | Official APT repository | Official GitHub stable OpenWrt APK |
 | Service and live logs | systemd / journalctl | procd / ubus / logread |
+| Boot startup status and enable/disable | systemd | procd rc.d + UCI |
 | Config download, validation and rollback | Yes | Yes |
 | Script self-update and stable/preview channels | Yes | Yes |
 | System full-upgrade, UFW, TCP/BBR tuning | Yes | Unavailable |
@@ -95,6 +105,9 @@ Uninstalling the core uses `apk del sing-box`, retaining its shared dependencies
 bash shell/build.sh
 bash shell/tests/regression.sh
 bash shell/tests/openwrt.sh
+bash shell/tests/autostart.sh
+# On a systemd host:
+sudo bash shell/tests/autostart.sh --systemd
 ```
 
 Pull requests into `main` run CI. Script changes must increase `SCRIPT_VERSION`

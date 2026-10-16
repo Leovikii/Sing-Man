@@ -70,7 +70,7 @@ sb::install_openwrt() {
     if ! sys::has_procd; then
         log::err "当前环境缺少原生 procd / ubus，无法安装服务。"; return 1
     fi
-    local release tag version current="" had_package=0 was_active=0
+    local release tag version current="" had_package=0 was_active=0 autostart=""
     log::info "正在检查 Sing-box 官方 GitHub 最新正式版..."
     release=$(net::fetch "$SB_RELEASE_URL") || return 1
     tag=$(jq -er 'select(.draft == false and .prerelease == false) | .tag_name' <<< "$release") || {
@@ -86,6 +86,9 @@ sb::install_openwrt() {
         if version::ge "$current" "$version"; then
             log::info "当前核心 v$current 已是最新或更新，无需替换。"; return 0
         fi
+        autostart=$(svc::autostart_state sing-box) || {
+            log::err "无法读取原自启设置，已取消更新。"; return 1;
+        }
         svc::is_active sing-box && was_active=1
     fi
     local package="$TMP_DIR/sing-box.apk" extracted="$TMP_DIR/sing-box-package"
@@ -110,7 +113,14 @@ sb::install_openwrt() {
     rm -rf -- "$extracted" || return 1
     # 不执行全局 upgrade；依赖与包文件的安装和配置保护交由 APK 处理。
     if ! apk add --allow-untrusted "$package"; then
+        if [[ "$had_package" -eq 1 ]]; then
+            svc::restore_autostart sing-box "$autostart" || log::err "恢复原自启设置失败。"
+        fi
         log::err "Sing-box APK 安装失败，请检查 APK 输出及设备软件源。"; return 1
+    fi
+    if [[ "$had_package" -eq 1 ]]; then
+        svc::restore_autostart sing-box "$autostart" || return 1
+        if [[ "$was_active" -eq 0 ]]; then svc::stop sing-box || return 1; fi
     fi
     if [[ "$new_config" -eq 1 ]]; then
         # 官方示例含固定密码及监听端口；首次安装使用无入站的基础配置。
@@ -123,7 +133,10 @@ sb::install_openwrt() {
             log::err "新软件包启动失败。"
             svc::stop sing-box || log::warn "停止服务失败。"
             if version::is_valid "$current" && ! version::is_prerelease "$current"; then
-                sb::restore_openwrt_package "$current" "$was_active" || return 1
+                local rollback_rc=0
+                sb::restore_openwrt_package "$current" "$was_active" || rollback_rc=$?
+                svc::restore_autostart sing-box "$autostart" || return 1
+                [[ "$rollback_rc" -eq 0 ]] || return 1
             fi
             return 1
         fi

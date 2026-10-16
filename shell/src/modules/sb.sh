@@ -12,6 +12,31 @@ sb::status() {
     fi
 }
 
+sb::autostart_status() {
+    local state
+    state=$(svc::autostart_state sing-box) || state="${state:-unknown}"
+    case "$state" in
+        enabled) echo -e "${GREEN}已启用${PLAIN}" ;;
+        disabled) echo -e "${YELLOW}已关闭${PLAIN}" ;;
+        blocked) echo -e "${YELLOW}未生效（UCI 已关闭）${PLAIN}" ;;
+        masked*) echo -e "${RED}已屏蔽（masked）${PLAIN}" ;;
+        enabled-runtime) echo -e "${YELLOW}临时启用（重启失效）${PLAIN}" ;;
+        not-found) echo -e "${YELLOW}未安装服务${PLAIN}" ;;
+        unavailable) echo -e "${YELLOW}不可用（服务管理器未运行）${PLAIN}" ;;
+        unknown) echo -e "${YELLOW}未知（查询失败）${PLAIN}" ;;
+        *) echo -e "${YELLOW}非独立自启（$state）${PLAIN}" ;;
+    esac
+}
+
+sb::set_autostart() {
+    if svc::set_autostart sing-box "$1"; then
+        log::info "开机自启: $(sb::autostart_status)（当前运行状态不变）"
+    else
+        log::err "设置开机自启失败。"
+        return 1
+    fi
+}
+
 sb::version() {
     if sys::has_cmd sing-box; then
         sing-box version 2>/dev/null | head -n 1 | awk '{print $3}'
@@ -23,6 +48,15 @@ sb::version() {
 sb::install() {
     if sys::is_openwrt; then sb::install_openwrt; return $?; fi
     log::info "准备安装/更新 Sing-box..."
+
+    local had_package=0 was_active=0 autostart=""
+    if sys::has_cmd sing-box; then
+        had_package=1
+        autostart=$(svc::autostart_state sing-box) || {
+            log::err "无法读取原自启设置，已取消更新。"; return 1;
+        }
+        svc::is_active sing-box && was_active=1
+    fi
 
     mkdir -p /etc/apt/keyrings
     pkg::add_gpg_key "https://sing-box.app/gpg.key" "/etc/apt/keyrings/sagernet.asc" \
@@ -40,11 +74,23 @@ sb::install() {
         log::warn "apt-get update 静默失败，尝试输出详细错误以供排查..."
         pkg::update || { log::err "系统软件源刷新失败，无法获取到最新版本列表。"; return 1; }
     fi
-    if pkg::install sing-box; then
+    local install_rc=0
+    pkg::install sing-box || install_rc=$?
+    if [[ "$had_package" -eq 1 ]]; then
+        svc::restore_autostart sing-box "$autostart" || return 1
+        if [[ "$was_active" -eq 0 ]]; then
+            svc::stop sing-box || return 1
+        fi
+    fi
+    if [[ "$install_rc" -ne 0 ]]; then
+        log::err "安装失败，请检查软件包输出及网络连接。"; return 1
+    fi
+    if [[ "$had_package" -eq 0 ]]; then
         svc::ensure_running sing-box "Sing-box 安装成功并已启动！"
-    else
-        log::err "安装失败，请检查网络连接。"
-        return 1
+    elif [[ "$was_active" -eq 1 ]]; then
+        svc::restart sing-box && svc::wait_active sing-box || {
+            log::err "核心已更新，但服务启动失败，请检查 $(svc::log_hint)。"; return 1;
+        }
     fi
 }
 

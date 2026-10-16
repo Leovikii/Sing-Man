@@ -39,9 +39,13 @@ jobs:
       - name: Build and test
         run: |
           bash shell/build.sh
-          shellcheck -S warning shell/sm.sh shell/build.sh shell/tests/regression.sh shell/tests/openwrt.sh
+          shellcheck -S warning shell/sm.sh shell/build.sh shell/tests/regression.sh shell/tests/openwrt.sh shell/tests/autostart.sh
           bash shell/tests/regression.sh
           bash shell/tests/openwrt.sh
+          bash shell/tests/autostart.sh
+
+      - name: Native systemd integration
+        run: sudo bash shell/tests/autostart.sh --systemd
 
       - name: Validate version
         shell: bash
@@ -89,6 +93,7 @@ jobs:
           bash shell/build.sh --check
           bash shell/tests/regression.sh
           bash shell/tests/openwrt.sh
+          bash shell/tests/autostart.sh
 
   openwrt:
     name: OpenWrt 25 (APK and BusyBox)
@@ -107,6 +112,7 @@ jobs:
               bash shell/build.sh --check
               bash shell/tests/regression.sh
               bash shell/tests/openwrt.sh
+              bash shell/tests/autostart.sh
             '
 
   main-gate:
