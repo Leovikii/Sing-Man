@@ -19,6 +19,7 @@ menu::main() {
         echo -e "  ${BLUE}·${PLAIN} 系统运行时间  ${up}"
         echo -e "  ${BLUE}·${PLAIN} Sing-box 版本 ${BLUE}${sb_ver}${PLAIN}"
         echo -e "  ${BLUE}·${PLAIN} 运行状态      ${sb_st}"
+        echo -e "  ${BLUE}·${PLAIN} 开机自启      $(sb::autostart_status)"
         if sys::is_openwrt; then
             echo -e "  ${BLUE}·${PLAIN} OpenWrt 模式  仅管理核心、配置、服务与脚本"
         else
@@ -26,7 +27,7 @@ menu::main() {
         fi
         ui::divider
         echo -e "  ${GREEN}1.${PLAIN} 安装 / 更新 Sing-box"
-        echo -e "  ${GREEN}2.${PLAIN} 管理 Sing-box 服务 (启动/停止/日志)"
+        echo -e "  ${GREEN}2.${PLAIN} 管理 Sing-box 服务 (启动/停止/自启/日志)"
         echo -e "  ${GREEN}3.${PLAIN} 更新 Sing-box 配置文件"
         if ! sys::is_openwrt; then
             ui::divider

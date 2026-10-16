@@ -3,7 +3,7 @@
 # ==============================================================================
 
 SCRIPT_NAME="sm.sh"
-SCRIPT_VERSION="3.3.0"
+SCRIPT_VERSION="3.3.1"
 PLATFORM=""
 INSTALL_PATH="/usr/local/bin/$SCRIPT_NAME"
 SCRIPT_UPDATE_URL="https://api.github.com/repos/Leovikii/Sing-Man/releases"

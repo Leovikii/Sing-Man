@@ -7,12 +7,15 @@ menu::sb_service() {
     while true; do
         ui::header "Sing-box 服务管理"
         echo -e " 当前状态: $(sb::status)"
+        echo -e " 开机自启: $(sb::autostart_status)"
         echo
         echo -e "  ${GREEN}1.${PLAIN} 启动服务"
         echo -e "  ${GREEN}2.${PLAIN} 停止服务"
         echo -e "  ${GREEN}3.${PLAIN} 重启服务"
         echo -e "  ${GREEN}4.${PLAIN} 查看实时日志 (Ctrl+C 退出整个脚本)"
         echo -e "  ${GREEN}5.${PLAIN} 卸载 Sing-box"
+        echo -e "  ${GREEN}6.${PLAIN} 启用开机自启"
+        echo -e "  ${GREEN}7.${PLAIN} 关闭开机自启"
         echo -e "  ${GREEN}0.${PLAIN} 返回主菜单"
         echo
         local opt
@@ -23,6 +26,8 @@ menu::sb_service() {
             3) svc::restart sing-box && svc::wait_active sing-box && log::info "已重启" || log::err "重启失败，请检查 $(svc::log_hint)。" ;;
             4) svc::logs sing-box ;;
             5) ui::confirm "确定要彻底卸载 Sing-box 吗?" && sb::uninstall ;;
+            6) sb::set_autostart enabled ;;
+            7) sb::set_autostart disabled ;;
             0) return ;;
             *) log::err "无效选项" ;;
         esac

@@ -47,6 +47,7 @@ setup() {
     sys::has_procd() { return 0; }
     uci() {
         case "$*" in
+            '-q export sing-box') return 0 ;;
             '-q get sing-box.main.enabled') echo 1 ;;
             '-q get sing-box.main.conffile') echo "$test_root/etc/sing-box/config.json" ;;
             *) return 1 ;;
@@ -162,6 +163,7 @@ make_release() {
 prepare_release() {
     make_release 1.14.3; make_release 1.13.0
     test_installed=0; test_active=0; test_restart_fail=0; test_package_fail=0
+    test_autostart=enabled; test_package_autostart=""
     net::fetch() {
         if [[ "$1" == */tags/v1.13.0 ]]; then cat "$test_root/1.13.0.json"
         else cat "$test_root/1.14.3.json"; fi
@@ -181,6 +183,7 @@ prepare_release() {
                 write_core "$4/usr/bin/sing-box" 1.14.3 ;;
             'add --allow-untrusted '*)
                 echo "install $(cat "$3")" >> "$TEST_CALLS"
+                [[ -z "$test_package_autostart" ]] || test_autostart="$test_package_autostart"
                 [[ "$test_package_fail" -eq 0 ]] || return 1
                 write_core "$SB_BINARY_FILE" "$(cat "$3")"
                 printf '#!/bin/sh\nexit 0\n' > "$SB_INIT_FILE"
@@ -201,8 +204,9 @@ prepare_release() {
     svc::wait_active() { svc::is_active "$1"; }
     svc::start() { echo start >> "$TEST_CALLS"; test_active=1; }
     svc::stop() { echo stop >> "$TEST_CALLS"; test_active=0; }
-    svc::enable() { echo enable >> "$TEST_CALLS"; }
-    svc::disable() { echo disable >> "$TEST_CALLS"; }
+    svc::autostart_state() { echo "$test_autostart"; }
+    svc::enable() { echo enable >> "$TEST_CALLS"; test_autostart=enabled; }
+    svc::disable() { echo disable >> "$TEST_CALLS"; test_autostart=disabled; }
     svc::restart() { echo restart >> "$TEST_CALLS"; [[ "$test_restart_fail" -eq 0 ]]; }
 }
 
@@ -246,7 +250,7 @@ test_update() {
 test_stopped_update() {
     setup; prepare_release; prepare_existing
     sb::install_openwrt || return 1
-    [[ "$(sb::version)" == 1.14.3 && "$(cat "$TEST_CALLS")" == $'download\nextract\ninstall 1.14.3' ]]
+    [[ "$(sb::version)" == 1.14.3 && "$(cat "$TEST_CALLS")" == $'download\nextract\ninstall 1.14.3\nstop' ]]
 }
 
 test_rollback() {
@@ -265,6 +269,21 @@ test_package_failure() {
     test_package_fail=0
     sb::install_openwrt || return 1
     [[ "$(sb::version)" == 1.14.3 ]]
+}
+
+test_autostart_preserved() {
+    setup; prepare_release; prepare_existing
+    test_active=1; test_autostart=disabled; test_package_autostart=enabled
+    sb::install_openwrt || return 1
+    [[ "$test_autostart" == disabled && "$test_active" -eq 1 &&
+       "$(cat "$TEST_CALLS")" == $'download\nextract\ninstall 1.14.3\ndisable\nrestart' ]] || return 1
+    write_core "$SB_BINARY_FILE" 1.13.0
+    test_restart_fail=1
+    ! sb::install_openwrt || return 1
+    [[ "$test_autostart" == disabled && "$(sb::version)" == 1.13.0 ]] || return 1
+    test_package_fail=1
+    ! sb::install_openwrt || return 1
+    [[ "$test_autostart" == disabled ]]
 }
 
 test_bad_download() {
@@ -355,6 +374,7 @@ run_test 'running package update preserves JSON/UCI and restarts' test_update
 run_test 'stopped package update remains stopped' test_stopped_update
 run_test 'failed restart restores previous official APK' test_rollback
 run_test 'APK install failure preserves core and permits retry' test_package_failure
+run_test 'package scripts and rollback preserve disabled startup' test_autostart_preserved
 run_test 'bad checksum never invokes APK installation' test_bad_download
 run_test 'incompatible config rejects APK before installation' test_incompatible_config
 run_test 'preview/draft/missing/untrusted APK assets are rejected' test_invalid_release

@@ -192,11 +192,13 @@ test_sb_install_propagates_failure() {
     pkg::add_gpg_key() { return 0; }
     pkg::write_repo() { return 0; }
     pkg::update() { return 0; }
-    pkg::install() { return 1; }
+    local install_called=0
+    sys::has_cmd() { return 1; }
+    pkg::install() { install_called=1; return 1; }
     # shellcheck source=../src/modules/sb.sh
     source "$ROOT_DIR/shell/src/modules/sb.sh"
 
-    ! sb::install
+    ! sb::install && [[ "$install_called" -eq 1 ]]
 }
 
 test_config_restart_failure_rolls_back() {
